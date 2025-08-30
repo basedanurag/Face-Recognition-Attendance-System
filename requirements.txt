@@ -1,0 +1,4 @@
+opencv-contrib-python>=4.8.0
+pillow>=10.1.0
+pandas>=2.0.0
+numpy>=1.26.0
