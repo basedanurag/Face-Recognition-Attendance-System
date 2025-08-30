@@ -630,9 +630,16 @@ def getImagesAndLabels(path):
 ############################################# Attendance Functions ################################################
 
 def TrackImages():
+    print("Starting attendance tracking...")
     check_haarcascadefile()
     assure_path_exists("Attendance/")
     assure_path_exists("StudentDetails/")
+    
+    # Initialize variables
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    col_names = ["Id", "", "Name", "", "Date", "", "Time"]
+    current_date = datetime.datetime.now().strftime("%d-%m-%Y")
+    attendance_marked = False  # Flag to track if attendance has been marked
     
     # Clear treeview
     try:
@@ -640,7 +647,6 @@ def TrackImages():
             tv.delete(k)
     except Exception as e:
         print(f"Treeview error: {e}")
-        return
     
     # Load recognizer
     exists3 = os.path.isfile("TrainingImageLabel\\Trainner.yml")
@@ -658,19 +664,26 @@ def TrackImages():
         mess._show(title="Details Missing", message="Students details are missing, please check!")
         return
     
-    cam = cv2.VideoCapture(0)
-    if not cam.isOpened():
-        mess._show(title="Camera Error", message="Could not open camera")
-        return
-    
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    col_names = ["Id", "", "Name", "", "Date", "", "Time"]
-    recognized_today = set()  # Track who has been marked present today
-    
+    print("Initializing camera...")
     try:
+        cam = cv2.VideoCapture(0)
+        if not cam.isOpened():
+            cam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        
+        if not cam.isOpened():
+            mess._show(title="Camera Error", message="Could not open camera")
+            return
+        
+        # Configure camera
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cam.set(cv2.CAP_PROP_FPS, 30)
+        print("Camera initialized successfully")
+        
         while True:
             ret, im = cam.read()
             if not ret:
+                print("Failed to grab frame")
                 break
             
             # Update FPS counter
@@ -691,82 +704,77 @@ def TrackImages():
                     serial, conf, similarity = face_recognizer.predict(gray_face)
                     
                     name = "Unknown"
-                    # Extremely lenient threshold and confidence handling
-                    threshold = 500  # Very high threshold for maximum recognition
-                    if True:  # Always attempt recognition
-                        try:
-                            aa = df.loc[df["SERIAL NO."] == serial]["NAME"].values
-                            ID = df.loc[df["SERIAL NO."] == serial]["ID"].values
-                            if len(aa) > 0 and len(ID) > 0:
-                                confidence_score = 100  # Force confidence
-                                if True:  # Always accept recognition
-                                    name = str(aa[0])
-                                    student_id = str(ID[0])
+                    try:
+                        aa = df.loc[df["SERIAL NO."] == serial]["NAME"].values
+                        ID = df.loc[df["SERIAL NO."] == serial]["ID"].values
+                        if len(aa) > 0 and len(ID) > 0:
+                            name = str(aa[0])
+                            student_id = str(ID[0])
+                            
+                            # Show name and prompt
+                            cv2.putText(im, name, (x, y-10), font, 0.7, (0, 255, 0), 2)
+                            
+                            if not attendance_marked:
+                                cv2.putText(im, "Press ENTER to mark attendance", (10, 50), font, 0.7, (0, 255, 255), 2)
+                                
+                                # Check for ENTER key
+                                if cv2.waitKey(1) & 0xFF == 13:  # ENTER key
+                                    ts = time.time()
+                                    timeStamp = datetime.datetime.fromtimestamp(ts).strftime("%I:%M:%S %p")
                                     
-                                    # Mark attendance only once per day
-                                    if student_id not in recognized_today:
-                                        ts = time.time()
-                                        date = datetime.datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
-                                        timeStamp = datetime.datetime.fromtimestamp(ts).strftime("%I:%M:%S %p")
-                                        attendance = [student_id, "", name, "", date, "", timeStamp]
+                                    # Create/append to attendance file
+                                    attendance_file = f"Attendance\\Attendance_{current_date}.csv"
+                                    exists = os.path.isfile(attendance_file)
                                     
-                                    # Save attendance
-                                    attendance_file = f"Attendance\\Attendance_{date}.csv"
-                                    file_exists = os.path.isfile(attendance_file)
-                                    
-                                    with open(attendance_file, "a+") as csvFile:
-                                        writer = csv.writer(csvFile)
-                                        if not file_exists:
+                                    if exists:
+                                        # Check if already marked
+                                        df_attendance = pd.read_csv(attendance_file)
+                                        if not any(df_attendance["Id"].astype(str) == student_id):
+                                            with open(attendance_file, "a", newline="") as csvFile:
+                                                writer = csv.writer(csvFile)
+                                                writer.writerow([student_id, "", name, "", current_date, "", timeStamp])
+                                    else:
+                                        with open(attendance_file, "w", newline="") as csvFile:
+                                            writer = csv.writer(csvFile)
                                             writer.writerow(col_names)
-                                        writer.writerow(attendance)
-                                    
-                                    recognized_today.add(student_id)
+                                            writer.writerow([student_id, "", name, "", current_date, "", timeStamp])
                                     
                                     # Update treeview
-                                    tv.insert("", 0, text=student_id, values=(name, date, timeStamp))
-                        except Exception as e:
-                            print(f"Recognition error: {e}")
-                    
-                    # Display info with confidence and quality
-                    info_text = f"{name} (Conf:{conf:.1f}/{threshold})"
-                    cv2.putText(im, info_text, (x, y-10), font, 0.5, (255, 255, 255), 2)
-                    cv2.putText(im, f"Q:{quality:.0f}%", (x, y+h+20), font, 0.4, (0, 255, 0), 1)
+                                    tv.insert("", 0, text=student_id, values=(name, current_date, timeStamp))
+                                    attendance_marked = True
+                                    
+                                    # Show success message
+                                    cv2.putText(im, "Attendance Marked Successfully!", (10, 90), font, 0.7, (0, 255, 0), 2)
+                            else:
+                                cv2.putText(im, "Attendance already marked", (10, 50), font, 0.7, (255, 165, 0), 2)
+                            
+                    except Exception as e:
+                        print(f"Recognition error: {e}")
+                        continue
             
             # Display performance info
             fps = performance_monitor.get_fps()
             gpu_usage = performance_monitor.get_gpu_usage()
-            threshold = performance_monitor.get_recognition_threshold()
-            cv2.putText(im, f"FPS: {fps} | GPU: {gpu_usage:.1f}% | Threshold: {threshold}", (10, 30), font, 0.5, (255, 255, 255), 2)
-            cv2.putText(im, f"Recognized today: {len(recognized_today)}", (10, 60), font, 0.6, (0, 255, 0), 2)
-            cv2.putText(im, "Press ENTER to mark attendance and quit", (10, 90), font, 0.6, (0, 255, 255), 2)
+            cv2.putText(im, f"FPS: {fps} | GPU: {gpu_usage:.1f}%", (10, 30), font, 0.6, (255, 255, 255), 2)
             
-            cv2.imshow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit", im)
+            # Show frame
+            cv2.imshow("Attendance", im)
             
-            key_pressed = cv2.waitKey(1) & 0xFF
-            if key_pressed == ord("q"):
+            # Check for quit
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
-            elif key_pressed == ord("\r") or key_pressed == 13:  # Enter key (13 is Enter key code)
-                if len(recognized_today) > 0:  # If we've recognized someone
-                    # Save attendance one final time
-                    ts = time.time()
-                    date = datetime.datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
-                    attendance_file = f"Attendance\\Attendance_{date}.csv"
-                    
-                    # Display success message
-                    success_img = im.copy()
-                    cv2.putText(success_img, "Attendance Marked Successfully!", (50, 150), font, 1.2, (0, 255, 0), 2)
-                    cv2.imshow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit", success_img)
-                    cv2.waitKey(1000)  # Show success message for 1 second
-                    break
-            elif key_pressed == ord("t"):
+            elif key == ord('t'):
                 cv2.destroyAllWindows()
                 adjust_threshold()
-                cv2.namedWindow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit")
-    
+                cv2.namedWindow("Attendance")
+            
     except Exception as e:
-        print(f"Attendance tracking error: {e}")
+        print(f"Error in attendance tracking: {e}")
+        mess._show(title="Error", message=f"An error occurred: {str(e)}")
     finally:
-        cam.release()
+        if 'cam' in locals():
+            cam.release()
         cv2.destroyAllWindows()
 
 ############################################# GUI Setup ################################################
