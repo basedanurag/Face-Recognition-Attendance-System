@@ -738,16 +738,30 @@ def TrackImages():
             threshold = performance_monitor.get_recognition_threshold()
             cv2.putText(im, f"FPS: {fps} | GPU: {gpu_usage:.1f}% | Threshold: {threshold}", (10, 30), font, 0.5, (255, 255, 255), 2)
             cv2.putText(im, f"Recognized today: {len(recognized_today)}", (10, 60), font, 0.6, (0, 255, 0), 2)
+            cv2.putText(im, "Press ENTER to mark attendance and quit", (10, 90), font, 0.6, (0, 255, 255), 2)
             
-            cv2.imshow("Taking Attendance - Press 'q' to stop, 't' to adjust threshold", im)
+            cv2.imshow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit", im)
             
             key_pressed = cv2.waitKey(1) & 0xFF
             if key_pressed == ord("q"):
                 break
+            elif key_pressed == ord("\r") or key_pressed == 13:  # Enter key (13 is Enter key code)
+                if len(recognized_today) > 0:  # If we've recognized someone
+                    # Save attendance one final time
+                    ts = time.time()
+                    date = datetime.datetime.fromtimestamp(ts).strftime("%d-%m-%Y")
+                    attendance_file = f"Attendance\\Attendance_{date}.csv"
+                    
+                    # Display success message
+                    success_img = im.copy()
+                    cv2.putText(success_img, "Attendance Marked Successfully!", (50, 150), font, 1.2, (0, 255, 0), 2)
+                    cv2.imshow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit", success_img)
+                    cv2.waitKey(1000)  # Show success message for 1 second
+                    break
             elif key_pressed == ord("t"):
                 cv2.destroyAllWindows()
                 adjust_threshold()
-                cv2.namedWindow("Taking Attendance - Press 'q' to stop, 't' to adjust threshold")
+                cv2.namedWindow("Taking Attendance - Press ENTER to mark attendance, 'q' to quit")
     
     except Exception as e:
         print(f"Attendance tracking error: {e}")
